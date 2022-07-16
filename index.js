@@ -1,6 +1,7 @@
 const express = require("express");
 const app = express();
-var bodyParser = require("body-parser");
+const bodyParser = require("body-parser");
+require("dotenv").config();
 // parse application/x-www-form-urlencoded
 app.use(bodyParser.urlencoded({ extended: false }));
 
@@ -8,47 +9,63 @@ app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 const { Pool } = require("pg");
 const pool = new Pool({
-  user: "postgres",
-  host: "localhost",
-  database: "testing_database",
-  password: "123456",
-  port: 5432,
+  user: process.env.USER || "postgres",
+  host: process.env.HOST || "localhost",
+  database: process.env.DATABASE || "testing_database",
+  password: process.env.PASSWORD || "123456",
+  port: process.env.PORT || 5432,
 });
 
-app.get("/insert", (req, res) => {
-  pool.query(
-    `insert into accounts (username, email, password) values ('riky', 'riky@gmail.com', 'password')`,
-    (err, response) => {
-      console.log("err", err);
-      console.log("response", response);
-      res.json({
-        message: "Succesfully insert new data",
-      });
-    }
-  );
-});
+// app.get("/insert", (req, res) => {
+//   pool.query(
+//     `insert into accounts (username, email, password) values ('riky', 'riky@gmail.com', 'password')`,
+//     (err, response) => {
+//       console.log("err", err);
+//       console.log("response", response);
+//       res.json({
+//         message: "Succesfully insert new data",
+//       });
+//     }
+//   );
+// });
 
-app.get("/", (req, res) => {
-  //   pool.query("SELECT * from accounts", (err, response) => {
-  //     console.log(response.rows);
-  //   });
-  pool.query("select username, email from accounts", (err, response) => {
-    console.log("er", err);
-    if (!err) {
-      res.json({
-        data: response.rows,
+// app.get("/", (req, res) => {
+//   //   pool.query("SELECT * from accounts", (err, response) => {
+//   //     console.log(response.rows);
+//   //   });
+//   pool.query("select username, email from accounts", (err, response) => {
+//     console.log("er", err);
+//     if (!err) {
+//       res.json({
+//         data: response.rows,
+//       });
+//     } else {
+//       res.json({
+//         err,
+//         message: "error",
+//       });
+//     }
+//   });
+// });
+
+app.get("/users", (req, res) => {
+  let query = `SELECT id, username, email, created_at FROM users`;
+  pool.query(query, (err, response) => {
+    if (err) {
+      res.status(500).json({
+        message: "Some error happen",
+        err,
       });
     } else {
-      res.json({
-        err,
-        message: "error",
+      res.status(200).json({
+        data: response.rows,
       });
     }
   });
 });
 
-app.get("/users", (req, res) => {
-  let query = `select username, email, created_at from users`;
+app.get("/users/:id", (req, res) => {
+  let query = `SELECT id, username, email, created_at FROM users WHERE id = ${req.params.id}`;
   pool.query(query, (err, response) => {
     if (err) {
       res.status(500).json({
@@ -118,7 +135,7 @@ app.get("/articles/:id", (req, res) => {
   FROM articles
     JOIN users
         ON articles.user_id = users.id
-        where articles.id = ${req.params.id} and articles.deleted_at is null;  
+        WHERE articles.id = ${req.params.id} and articles.deleted_at is null;  
   `;
   pool.query(query, (err, response) => {
     console.log("err", err);
@@ -143,7 +160,12 @@ app.post("/articles", (req, res) => {
   VALUES
   ($1, $2, $3, $4)
   `;
-  let values = [req.body.title, req.body.body, false, req.headers.user_id];
+  let values = [
+    req.body.title,
+    req.body.body,
+    req.body.approved,
+    req.headers.user_id,
+  ];
   pool.query(query, values, (err, _) => {
     if (err) {
       res.status(500).json({
@@ -164,10 +186,17 @@ app.put("/articles/:id", (req, res) => {
   SET 
   title = $1,
   body = $2,
-  updated_at = $3
-  where id = $4;
+  approved = $3,
+  updated_at = $4
+  WHERE id = $5;
   `;
-  let values = [req.body.title, req.body.body, new Date(), req.params.id];
+  let values = [
+    req.body.title,
+    req.body.body,
+    req.body.approved,
+    new Date(),
+    req.params.id,
+  ];
   pool.query(query, values, (err, _) => {
     if (err) {
       res.status(500).json({
@@ -186,8 +215,9 @@ app.delete("/articles/:id", (req, res) => {
   let query = `
   UPDATE articles
   SET
-  deleted_at = $1
-  where id = $2;
+  deleted_at = $1,
+  "isDeleted" = false
+  WHERE id = $2;
   `;
   let values = [new Date(), req.params.id];
   pool.query(query, values, (err, _) => {
@@ -198,7 +228,34 @@ app.delete("/articles/:id", (req, res) => {
       });
     } else {
       res.status(200).json({
-        message: "succesfully update data",
+        message: "succesfully deleted data",
+      });
+    }
+  });
+});
+
+app.post("/comments", (req, res) => {
+  let query = `
+  INSERT INTO comments
+  (user_id, article_id, comment_body)
+  VALUES
+  ($1, $2, $3)
+  `;
+  let values = [
+    req.headers.user_id,
+    req.headers.article_id,
+    req.body.comment_body,
+  ];
+  pool.query(query, values, (err, _) => {
+    if (err) {
+      res.status(500).json({
+        message: "Some error happen",
+        err,
+      });
+    } else {
+      res.status(200).json({
+        message: "Succesfully created new comment",
+        values,
       });
     }
   });

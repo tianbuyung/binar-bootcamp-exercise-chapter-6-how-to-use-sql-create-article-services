@@ -48,8 +48,36 @@ const pool = new Pool({
 //   });
 // });
 
+app.post("/users", (req, res) => {
+  let query = `
+  INSERT INTO users
+  (username, password, email)
+  VALUES
+  ($1, $2, $3)
+  `;
+  let values = [req.body.username, req.body.password, req.body.email];
+  pool.query(query, values, (err, _) => {
+    if (err) {
+      res.status(500).json({
+        message: "Some error happen",
+        err,
+      });
+    } else {
+      res.status(200).json({
+        message: "succesfully created new user",
+      });
+    }
+  });
+});
+
 app.get("/users", (req, res) => {
-  let query = `SELECT id, username, email, created_at FROM users`;
+  let query = `SELECT
+  users.id, users.username, users.email, users.created_at, articles.id as article, articles.title, articles.body
+  FROM users
+    JOIN articles
+      ON articles.user_id = users.id
+  WHERE articles.deleted_at is null
+  `;
   pool.query(query, (err, response) => {
     if (err) {
       res.status(500).json({
@@ -80,35 +108,15 @@ app.get("/users/:id", (req, res) => {
   });
 });
 
-app.post("/users", (req, res) => {
-  let query = `
-  INSERT INTO users
-  (username, password, email)
-  VALUES
-  ($1, $2, $3)
-  `;
-  let values = [req.body.username, req.body.password, req.body.email];
-  pool.query(query, values, (err, _) => {
-    if (err) {
-      res.status(500).json({
-        message: "Some error happen",
-        err,
-      });
-    } else {
-      res.status(200).json({
-        message: "succesfully created new user",
-      });
-    }
-  });
-});
-
 app.get("/articles", (req, res) => {
   let query = `
   SELECT
-  articles.id, articles.title, articles.body, users.username as author, users.email as contact_author
+  articles.id, articles.title, articles.body, articles.created_at, articles.updated_at, users.username as author, users.email as contact_author, comments.comment_body as comments, comments.user_id as comments_author
   FROM articles
     JOIN users
         ON articles.user_id = users.id
+          FULL JOIN comments
+            ON comments.article_id = articles.id
   WHERE articles.deleted_at is null
   ORDER BY id ASC
   ;  
@@ -260,6 +268,23 @@ app.post("/comments", (req, res) => {
     }
   });
 });
+
+app.get("/comments", (req, res) => {
+  let query = `SELECT id, comment_body, user_id, article_id, created_at FROM comments`;
+  pool.query(query, (err, response) => {
+    if (err) {
+      res.status(500).json({
+        message: "Some error happen",
+        err,
+      });
+    } else {
+      res.status(200).json({
+        data: response.rows,
+      });
+    }
+  });
+});
+
 // if (err) {
 //   res.status(500).json({
 //     message: "Some error happen",

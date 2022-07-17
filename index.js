@@ -71,12 +71,16 @@ app.post("/users", (req, res) => {
 });
 
 app.get("/users", (req, res) => {
-  let query = `SELECT
-  users.id, users.username, users.email, users.created_at, articles.id as article, articles.title, articles.body
-  FROM users
-    JOIN articles
-      ON articles.user_id = users.id
-  WHERE articles.deleted_at is null
+  let query = `
+  SELECT JSON_AGG(data ORDER BY id)
+  FROM(
+    SELECT users.id, users.username, users.email, users.created_at, JSON_AGG(articles) AS articles
+    FROM users
+      FULL JOIN articles
+        ON articles.user_id = users.id
+    WHERE articles.deleted_at is null
+    GROUP BY users.id, users.username, users.email, users.created_at
+  ) data;
   `;
   pool.query(query, (err, response) => {
     if (err) {
@@ -86,6 +90,7 @@ app.get("/users", (req, res) => {
       });
     } else {
       res.status(200).json({
+        message: "Get All Users",
         data: response.rows,
       });
     }
@@ -110,16 +115,15 @@ app.get("/users/:id", (req, res) => {
 
 app.get("/articles", (req, res) => {
   let query = `
-  SELECT
-  articles.id, articles.title, articles.body, articles.created_at, articles.updated_at, users.username as author, users.email as contact_author, comments.comment_body as comments, comments.user_id as comments_author
+  SELECT JSON_AGG(data ORDER BY id)
+  FROM (
+  SELECT articles.id, articles.title, articles.body, articles.created_at, articles.updated_at, JSON_AGG(comments) AS comments
   FROM articles
-    JOIN users
-        ON articles.user_id = users.id
-          FULL JOIN comments
-            ON comments.article_id = articles.id
+    FULL JOIN comments
+      ON articles.id = comments.article_id
   WHERE articles.deleted_at is null
-  ORDER BY id ASC
-  ;  
+  GROUP BY articles.id, articles.title, articles.body, articles.created_at, articles.updated_at
+  ) data; 
   `;
   pool.query(query, (err, response) => {
     if (err) {
@@ -129,8 +133,8 @@ app.get("/articles", (req, res) => {
       });
     } else {
       res.status(200).json({
-        data: response.rows,
         message: "Get All Articles",
+        data: response.rows,
       });
     }
   });

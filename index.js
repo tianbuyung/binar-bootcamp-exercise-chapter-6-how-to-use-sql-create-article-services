@@ -74,12 +74,23 @@ app.get("/users", (req, res) => {
   let query = `
   SELECT JSON_AGG(data ORDER BY id)
   FROM(
-    SELECT users.id, users.username, users.email, users.created_at, JSON_AGG(articles) AS articles
-    FROM users
-      FULL JOIN articles
-        ON articles.user_id = users.id
-    WHERE articles.deleted_at is null
-    GROUP BY users.id, users.username, users.email, users.created_at
+    SELECT u.id, u.username, u.email, (
+      SELECT JSON_AGG(a)
+      FROM (
+        SELECT a.id AS article_id, a.title, a.body, a.created_at, a.updated_at, (
+          SELECT JSON_AGG(c)
+          FROM (
+            SELECT c.comment_body, c.user_id, c.created_at
+            FROM comments c
+            WHERE a.id = c.article_id
+          ) c
+        ) AS comments
+        FROM articles a
+        WHERE a.user_id = u.id and a.deleted_at is null
+      ) a
+    ) AS articles
+    FROM users u
+    GROUP BY u.id, u.username, u.email, u.created_at
   ) data;
   `;
   pool.query(query, (err, response) => {
@@ -117,12 +128,24 @@ app.get("/articles", (req, res) => {
   let query = `
   SELECT JSON_AGG(data ORDER BY id)
   FROM (
-  SELECT articles.id, articles.title, articles.body, articles.created_at, articles.updated_at, JSON_AGG(comments) AS comments
-  FROM articles
-    FULL JOIN comments
-      ON articles.id = comments.article_id
-  WHERE articles.deleted_at is null
-  GROUP BY articles.id, articles.title, articles.body, articles.created_at, articles.updated_at
+  SELECT a.id, a.title, a.body, a.created_at, a.updated_at, (
+    SELECT JSON_AGG(u)
+    FROM (
+      SELECT u.username, u.email AS contact
+      FROM users u
+      WHERE a.user_id = u.id
+    ) u
+  ) AS author, (
+    SELECT JSON_AGG(c)
+    FROM (
+      SELECT c.comment_body, c.user_id, c.created_at
+      FROM comments c
+      WHERE a.id = c.article_id
+    ) c
+  ) AS comments
+  FROM articles a
+  WHERE a.deleted_at is null
+  GROUP BY a.id, a.title, a.body, a.created_at, a.updated_at
   ) data; 
   `;
   pool.query(query, (err, response) => {

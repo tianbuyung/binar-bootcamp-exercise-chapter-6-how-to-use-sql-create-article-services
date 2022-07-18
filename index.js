@@ -1,6 +1,7 @@
 const express = require("express");
 const app = express();
 const bodyParser = require("body-parser");
+const logger = require("morgan");
 require("dotenv").config();
 // parse application/x-www-form-urlencoded
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -14,6 +15,13 @@ const pool = new Pool({
   database: process.env.DATABASE || "testing_database",
   password: process.env.PASSWORD || "123456",
   port: process.env.PORT || 5432,
+});
+app.use(logger("dev"));
+
+app.get("/", (req, res) => {
+  res.status(200).json({
+    status: "This Rest API App is ready, please open via postman!",
+  });
 });
 
 // app.get("/insert", (req, res) => {
@@ -118,7 +126,35 @@ app.get("/users/:id", (req, res) => {
       });
     } else {
       res.status(200).json({
+        message: "Get a User by ID",
         data: response.rows,
+      });
+    }
+  });
+});
+
+app.post("/articles", (req, res) => {
+  let query = `
+  INSERT INTO articles
+  (title, body, approved, user_id)
+  VALUES
+  ($1, $2, $3, $4)
+  `;
+  let values = [
+    req.body.title,
+    req.body.body,
+    req.body.approved,
+    req.headers.user_id,
+  ];
+  pool.query(query, values, (err, _) => {
+    if (err) {
+      res.status(500).json({
+        message: "Some error happen",
+        err,
+      });
+    } else {
+      res.status(200).json({
+        message: "Succesfully created new article",
       });
     }
   });
@@ -165,12 +201,27 @@ app.get("/articles", (req, res) => {
 
 app.get("/articles/:id", (req, res) => {
   let query = `
-  SELECT
-  articles.id, articles.title, articles.body, users.username as author, users.email as contact_author
-  FROM articles
-    JOIN users
-        ON articles.user_id = users.id
-        WHERE articles.id = ${req.params.id} and articles.deleted_at is null;  
+  SELECT JSON_AGG(data ORDER BY id)
+  FROM (
+  SELECT a.id, a.title, a.body, a.created_at, a.updated_at, (
+    SELECT JSON_AGG(u)
+    FROM (
+      SELECT u.username, u.email AS contact
+      FROM users u
+      WHERE a.user_id = u.id
+    ) u
+  ) AS author, (
+    SELECT JSON_AGG(c)
+    FROM (
+      SELECT c.comment_body, c.user_id, c.created_at
+      FROM comments c
+      WHERE a.id = c.article_id
+    ) c
+  ) AS comments
+  FROM articles a
+  WHERE a.id = ${req.params.id} and a.deleted_at is null
+  GROUP BY a.id, a.title, a.body, a.created_at, a.updated_at
+  ) data; 
   `;
   pool.query(query, (err, response) => {
     console.log("err", err);
@@ -182,34 +233,7 @@ app.get("/articles/:id", (req, res) => {
     } else {
       res.status(200).json({
         data: response.rows,
-        message: "Get All Articles",
-      });
-    }
-  });
-});
-
-app.post("/articles", (req, res) => {
-  let query = `
-  INSERT INTO articles
-  (title, body, approved, user_id)
-  VALUES
-  ($1, $2, $3, $4)
-  `;
-  let values = [
-    req.body.title,
-    req.body.body,
-    req.body.approved,
-    req.headers.user_id,
-  ];
-  pool.query(query, values, (err, _) => {
-    if (err) {
-      res.status(500).json({
-        message: "Some error happen",
-        err,
-      });
-    } else {
-      res.status(200).json({
-        message: "Succesfully created new article",
+        message: "Get a Article by ID",
       });
     }
   });
@@ -240,7 +264,7 @@ app.put("/articles/:id", (req, res) => {
       });
     } else {
       res.status(200).json({
-        message: "succesfully update data",
+        message: "succesfully update article",
       });
     }
   });
@@ -263,7 +287,7 @@ app.delete("/articles/:id", (req, res) => {
       });
     } else {
       res.status(200).json({
-        message: "succesfully deleted data",
+        message: "succesfully deleted article",
       });
     }
   });
@@ -297,7 +321,10 @@ app.post("/comments", (req, res) => {
 });
 
 app.get("/comments", (req, res) => {
-  let query = `SELECT id, comment_body, user_id, article_id, created_at FROM comments`;
+  let query = `SELECT id, comment_body, user_id, article_id, created_at, updated_at
+  FROM comments
+  WHERE comments.deleted_at is null
+  `;
   pool.query(query, (err, response) => {
     if (err) {
       res.status(500).json({
@@ -307,6 +334,71 @@ app.get("/comments", (req, res) => {
     } else {
       res.status(200).json({
         data: response.rows,
+      });
+    }
+  });
+});
+
+app.get("/comments/:id", (req, res) => {
+  let query = `SELECT id, comment_body, user_id, article_id, created_at
+  FROM comments
+  WHERE id = ${req.params.id} and comments.deleted_at is null
+  `;
+  pool.query(query, (err, response) => {
+    if (err) {
+      res.status(500).json({
+        message: "Some error happen",
+        err,
+      });
+    } else {
+      res.status(200).json({
+        data: response.rows,
+      });
+    }
+  });
+});
+
+app.put("/comments/:id", (req, res) => {
+  let query = `
+  UPDATE comments
+  SET 
+  comment_body = $1,
+  updated_at = $2
+  WHERE id = $3;
+  `;
+  let values = [req.body.comment_body, new Date(), req.params.id];
+  pool.query(query, values, (err, _) => {
+    if (err) {
+      res.status(500).json({
+        message: "Some error happen",
+        err,
+      });
+    } else {
+      res.status(200).json({
+        message: "succesfully update comment",
+      });
+    }
+  });
+});
+
+app.delete("/comments/:id", (req, res) => {
+  let query = `
+  UPDATE comments
+  SET
+  deleted_at = $1,
+  "isDeleted" = false
+  WHERE id = $2;
+  `;
+  let values = [new Date(), req.params.id];
+  pool.query(query, values, (err, _) => {
+    if (err) {
+      res.status(500).json({
+        message: "Some error happen",
+        err,
+      });
+    } else {
+      res.status(200).json({
+        message: "succesfully deleted comment",
       });
     }
   });
@@ -324,3 +416,4 @@ app.get("/comments", (req, res) => {
 // }
 
 app.listen(3000);
+console.log(`This app listening at http://localhost:3000`);

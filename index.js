@@ -448,7 +448,7 @@ let groupedArticlesData = (data) => {
       created_at: data[0].created_at,
       updated_at: data[0].updated_at,
       author: data[0].author,
-      author_email: data[0].contact_author,
+      author_email: data[0].author_email,
       comments: data.map((d) => ({
         comment_body: d.comment_body,
         user_id: d.user_id,

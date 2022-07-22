@@ -162,27 +162,14 @@ app.post("/articles", (req, res) => {
 
 app.get("/articles", (req, res) => {
   let query = `
-  SELECT JSON_AGG(data ORDER BY id)
-  FROM (
-  SELECT a.id, a.title, a.body, a.created_at, a.updated_at, (
-    SELECT JSON_AGG(u)
-    FROM (
-      SELECT u.username, u.email AS contact
-      FROM users u
-      WHERE a.user_id = u.id
-    ) u
-  ) AS author, (
-    SELECT JSON_AGG(c)
-    FROM (
-      SELECT c.comment_body, c.user_id, c.created_at
-      FROM comments c
-      WHERE a.id = c.article_id
-    ) c
-  ) AS comments
+  SELECT a.id, a.title, a.body, a.created_at, a.updated_at, u.username AS author, u.email AS author_email, c.comment_body, c.user_id
   FROM articles a
-  WHERE a.deleted_at is null
-  GROUP BY a.id, a.title, a.body, a.created_at, a.updated_at
-  ) data; 
+    JOIN users u
+        ON a.user_id = u.id
+          FULL JOIN comments c
+            ON c.article_id = a.id
+  WHERE a.deleted_at IS null
+  ORDER BY id ASC 
   `;
   pool.query(query, (err, response) => {
     if (err) {
@@ -191,9 +178,11 @@ app.get("/articles", (req, res) => {
         err,
       });
     } else {
+      const articles = response.rows;
+      const groupedArticles = groupedArticlesData(articles);
       res.status(200).json({
         message: "Get All Articles",
-        data: response.rows,
+        data: groupedArticles,
       });
     }
   });
@@ -201,39 +190,27 @@ app.get("/articles", (req, res) => {
 
 app.get("/articles/:id", (req, res) => {
   let query = `
-  SELECT JSON_AGG(data ORDER BY id)
-  FROM (
-  SELECT a.id, a.title, a.body, a.created_at, a.updated_at, (
-    SELECT JSON_AGG(u)
-    FROM (
-      SELECT u.username, u.email AS contact
-      FROM users u
-      WHERE a.user_id = u.id
-    ) u
-  ) AS author, (
-    SELECT JSON_AGG(c)
-    FROM (
-      SELECT c.comment_body, c.user_id, c.created_at
-      FROM comments c
-      WHERE a.id = c.article_id
-    ) c
-  ) AS comments
+  SELECT a.id, a.title, a.body, a.created_at, a.updated_at, u.username AS author, u.email AS author_email, c.comment_body, c.user_id
   FROM articles a
-  WHERE a.id = ${req.params.id} and a.deleted_at is null
-  GROUP BY a.id, a.title, a.body, a.created_at, a.updated_at
-  ) data; 
+    JOIN users u
+        ON a.user_id = u.id
+          FULL JOIN comments c
+            ON c.article_id = a.id
+            WHERE a.id = ${req.params.id} AND a.deleted_at IS null
   `;
   pool.query(query, (err, response) => {
-    console.log("err", err);
     if (err) {
       res.status(500).json({
         message: "Some error happen",
         err,
       });
     } else {
+      const articles = response.rows;
+      const groupedArticles = groupedArticlesData(articles);
+      // console.log(groupedArticles);
       res.status(200).json({
-        data: response.rows,
         message: "Get a Article by ID",
+        data: groupedArticles,
       });
     }
   });
@@ -264,7 +241,7 @@ app.put("/articles/:id", (req, res) => {
       });
     } else {
       res.status(200).json({
-        message: "succesfully update article",
+        message: "Succesfully update article",
       });
     }
   });
@@ -415,5 +392,69 @@ app.delete("/comments/:id", (req, res) => {
 //   });
 // }
 
-app.listen(3000);
-console.log(`This app listening at http://localhost:3000`);
+const portApi = process.env.PORTAPI || 3000;
+
+app.listen(portApi, () => {
+  console.log(`This app listening at http://localhost:${portApi}`);
+});
+
+let groupedArticlesData = (data) => {
+  // console.log(data);
+  let result = Object.entries(
+    // What you have done
+    data.reduce(
+      (
+        acc,
+        {
+          id,
+          title,
+          body,
+          created_at,
+          updated_at,
+          author,
+          author_email,
+          comment_body,
+          user_id,
+        }
+      ) => {
+        // Group initialization
+        if (!acc[id]) {
+          acc[id] = [];
+        }
+
+        // Grouping
+        // FIX: only pushing the object that contains id and value
+        acc[id].push({
+          comment_body,
+          title,
+          body,
+          created_at,
+          updated_at,
+          author,
+          author_email,
+          comment_body,
+          user_id,
+        });
+
+        return acc;
+      },
+      {}
+    )
+  ).map(([id, data]) => {
+    const obj = {
+      id,
+      title: data[0].title,
+      body: data[0].body,
+      created_at: data[0].created_at,
+      updated_at: data[0].updated_at,
+      author: data[0].author,
+      author_email: data[0].contact_author,
+      comments: data.map((d) => ({
+        comment_body: d.comment_body,
+        user_id: d.user_id,
+      })),
+    };
+    return obj;
+  });
+  return result;
+};
